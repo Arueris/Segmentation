@@ -1,6 +1,7 @@
 .vscode/
 runs/
 trained_models/
+datasets/
 
 
 # Byte-compiled / optimized / DLL files
