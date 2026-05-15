@@ -113,8 +113,8 @@ def train_model(
     best_val_iou = 0.0
     best_val_train_loss = 0.0
     for epoch in range(num_epochs):
-        train_loss = train_one_epoch(network, train_loader, loss_fn, optimizer, device, desc=f"Train Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
-        val_loss, val_dice, val_iou = val_one_epoch(network, test_loader, loss_fn, device, desc=f"Validation Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
+        train_loss = train_one_epoch(network, train_loader, loss_fn, optimizer, device, desc=f"[{arch}_{encoder_name}] Train Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
+        val_loss, val_dice, val_iou = val_one_epoch(network, test_loader, loss_fn, device, desc=f"[{arch}_{encoder_name}] Validation Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -223,19 +223,30 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
     return avg_loss, avg_dice, avg_iou
 
 if __name__ == "__main__":
-    train_model(
-        arch="segformer", 
-        encoder_name="resnet34", 
-        encoder_weights=None, 
-        num_epochs=20, 
-        lr=1e-3, 
-        weight_decay=1e-4, 
-        path=r"F:/Python/SAM2/OCTDatasetOIMHS", 
-        train_portion=0.7, 
-        augment=True, 
-        max_rotate_deg=0, 
-        hflip_p=0.5, 
-        normalize="none", 
-        batch_size=16, 
-        num_workers=4, 
-        gpu=True)
+    import logging
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"]
+    encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
+    for arch in archs:
+        for encoder in encoders:
+            logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}'")
+            try:
+                train_model(
+                    arch=arch, 
+                    encoder_name=encoder, 
+                    encoder_weights=None, 
+                    num_epochs=20, 
+                    lr=1e-3, 
+                    weight_decay=1e-4, 
+                    path=r"datasets/OCTDatasetOIMHS", 
+                    train_portion=0.7, 
+                    augment=True, 
+                    max_rotate_deg=0, 
+                    hflip_p=0.5, 
+                    normalize="none", 
+                    batch_size=16, 
+                    num_workers=4, 
+                    gpu=True)
+            except Exception as e:
+                logger.error(f"Fehler bei {arch} mit {encoder}: {e}")
