@@ -2,6 +2,7 @@
 runs/
 trained_models/
 datasets/
+runs*/
 
 
 # Byte-compiled / optimized / DLL files

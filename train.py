@@ -133,6 +133,12 @@ def train_model(
     writer.flush()
     writer.close()
 
+    network.to("cpu")
+
+    del network
+    del optimizer
+    torch.cuda.empty_cache()
+
 def train_one_epoch(network, dataloader, loss_fn, optimizer, device, desc, writer, epoch):
     network.train()
     epoch_loss = 0.0
@@ -147,7 +153,7 @@ def train_one_epoch(network, dataloader, loss_fn, optimizer, device, desc, write
         loss.backward()
         optimizer.step()
 
-        epoch_loss += loss.item()
+        epoch_loss += loss.item() * images.size(0)  # accumulate total loss over all samples
         n_batches += images.size(0)
     avg_loss = epoch_loss / n_batches
     writer.add_scalar("Loss/train", avg_loss, epoch)
@@ -187,7 +193,7 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
             union = pred_sum + mask_sum - intersection
             iou = (intersection + eps) / (union + eps)
 
-            running_loss += loss.item()
+            running_loss += loss.item() * images.size(0)
             running_dice += dice_score.sum().item()
             running_iou += iou.sum().item()
             n_batches += images.size(0)
@@ -224,29 +230,42 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
 
 if __name__ == "__main__":
     import logging
-    logger = logging.getLogger()
+    import gc
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("training.log", mode='w', encoding='utf-8')
+        ]
+    )
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
-    archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"]
+    archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"] # 
     encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
+    normalize_options = ["none", "minmax", "zscore"]
     for arch in archs:
         for encoder in encoders:
-            logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}'")
-            try:
-                train_model(
-                    arch=arch, 
-                    encoder_name=encoder, 
-                    encoder_weights=None, 
-                    num_epochs=20, 
-                    lr=1e-3, 
-                    weight_decay=1e-4, 
-                    path=r"datasets/OCTDatasetOIMHS", 
-                    train_portion=0.7, 
-                    augment=True, 
-                    max_rotate_deg=0, 
-                    hflip_p=0.5, 
-                    normalize="none", 
-                    batch_size=16, 
-                    num_workers=4, 
-                    gpu=True)
-            except Exception as e:
-                logger.error(f"Fehler bei {arch} mit {encoder}: {e}")
+            for normalize in normalize_options:
+                logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+                try:
+                    train_model(
+                        arch=arch, 
+                        encoder_name=encoder, 
+                        encoder_weights=None, 
+                        num_epochs=20, 
+                        lr=1e-3, 
+                        weight_decay=1e-4, 
+                        path=r"datasets/OCTDatasetOIMHS", 
+                        train_portion=0.7, 
+                        augment=True, 
+                        max_rotate_deg=0, 
+                        hflip_p=0.5, 
+                        normalize=normalize, 
+                        batch_size=16, 
+                        num_workers=4, 
+                        gpu=True)
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                except Exception as e:
+                    logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
