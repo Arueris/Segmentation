@@ -231,6 +231,7 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
 if __name__ == "__main__":
     import logging
     import gc
+    import time
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -249,6 +250,7 @@ if __name__ == "__main__":
             for normalize in normalize_options:
                 logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
                 try:
+                    start = time.time()
                     train_model(
                         arch=arch, 
                         encoder_name=encoder, 
@@ -265,6 +267,7 @@ if __name__ == "__main__":
                         batch_size=16, 
                         num_workers=4, 
                         gpu=True)
+                    logger.info(f"Finished training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}' in {(time.time() - start)/60:.2f} minutes")
                     gc.collect()
                     torch.cuda.empty_cache()
                 except Exception as e:
