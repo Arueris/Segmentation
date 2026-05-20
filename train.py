@@ -228,26 +228,49 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
 
     return avg_loss, avg_dice, avg_iou
 
+
+def check_completed_experiments(log_file="training.log"):
+    completed = set()
+    if os.path.exists(log_file):
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if "Finished training with architecture" in line:
+                    parts = line.split("Finished training with architecture '")[1].split("' and encoder '")
+                    arch = parts[0]
+                    encoder = parts[1].split("' and normalization '")[0]
+                    normalize = parts[1].split("' and normalization '")[1].split("' in ")[0]
+                    completed.add((arch, encoder, normalize))
+    return completed
+
 if __name__ == "__main__":
     import logging
     import gc
     import time
+    log_file = "training.log"
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler("training.log", mode='w', encoding='utf-8')
+            logging.FileHandler(log_file, mode='a', encoding='utf-8')
         ]
     )
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
+    completed_experiments = check_completed_experiments(log_file)
     archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"] # 
     encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
     normalize_options = ["none", "minmax", "zscore"]
+    logger.info(f"Starting training with {len(archs)*len(encoders)*len(normalize_options)} total experiments (after filtering completed ones)")
     for arch in archs:
         for encoder in encoders:
             for normalize in normalize_options:
+                if (arch, encoder, normalize) in completed_experiments:
+                    logger.info(f"Skipping already completed experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+                    continue
+                if arch == "unet++" and encoder == "resnet50":
+                    logger.info(f"Skipping incompatible combination of architecture '{arch}' and encoder '{encoder}'")
+                    continue
                 logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
                 try:
                     start = time.time()
