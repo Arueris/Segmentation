@@ -9,6 +9,7 @@ def build_smp_model(
     in_channels: int = 1,                 # OCT: 1
     classes: int = 1,                     # binary: 1 logit channel
     activation: str | None = None,        # None -> logits (recommended)
+    encoder_weight_path: str | None = None,  # Pfad zu lokal gespeicherten Encoder-Gewichten (optional)
     **kwargs
 ):
     """
@@ -51,4 +52,11 @@ def build_smp_model(
         activation=activation,
         **kwargs
     )
+
+    if encoder_weight_path is not None:
+        print(f"Lade Encoder-Gewichte von '{encoder_weight_path}'...")
+        encoder_state_dict = torch.load(encoder_weight_path, map_location="cpu")
+        model.encoder.load_state_dict(encoder_state_dict)
+        print("Encoder-Gewichte geladen.")
+
     return model

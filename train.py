@@ -45,11 +45,12 @@ def train_model(
         normalize="none",
         batch_size=16,
         num_workers=0,
-        gpu: bool = True
+        gpu: bool = True,
+        log_dir: str = "runs"
 ):
     # setup writer for TensorBoard
     run_name = f"{arch}_{encoder_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    writer = SummaryWriter(log_dir=f"runs/{run_name}")
+    writer = SummaryWriter(log_dir=f"{log_dir}/{run_name}")
 
     # add parameters to writer
     hparams = {
