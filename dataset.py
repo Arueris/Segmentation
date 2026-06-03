@@ -90,10 +90,8 @@ class OIMHSDataset(Dataset):
                 return (img - mn) / (mx - mn)
             return img * 0.0
         if self.normalize == "zscore":
-            mu, sigma = float(img.mean()), float(img.std())
-            if sigma > 1e-6:
-                return (img - mu) / sigma
-            return img - mu
+            img = (img - img.mean()) / (img.std() + 1e-8)
+            return img
         raise ValueError(f"Unknown normalize='{self.normalize}'")
 
     def _augment_pair(self, img_t: torch.Tensor, mask_t: torch.Tensor):

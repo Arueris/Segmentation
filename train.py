@@ -1,3 +1,5 @@
+import logging
+
 import dataset
 import model
 import os
@@ -34,7 +36,9 @@ def train_model(
         arch="unet",
         encoder_name="resnet34",
         encoder_weights=None,
+        encoder_weight_path=None,
         num_epochs: int = 10,
+        num_freeze_encoder_epochs: int = 0,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
         path: str = r"F:/Python/SAM2/OCTDatasetOIMHS",
@@ -46,7 +50,9 @@ def train_model(
         batch_size=16,
         num_workers=0,
         gpu: bool = True,
-        log_dir: str = "runs"
+        log_dir: str = "runs",
+        logger: logging.Logger | None = None,
+        save_dir_model: str | None = None
 ):
     # setup writer for TensorBoard
     run_name = f"{arch}_{encoder_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -57,7 +63,9 @@ def train_model(
         "arch": arch,
         "encoder_name": encoder_name,
         "encoder_weights": encoder_weights,
+        "encoder_weight_path": encoder_weight_path,
         "num_epochs": num_epochs,
+        "num_freeze_encoder_epochs": num_freeze_encoder_epochs,
         "lr": lr,
         "weight_decay": weight_decay,
         "train_portion": train_portion,
@@ -94,7 +102,14 @@ def train_model(
         encoder_weights=encoder_weights,
         in_channels=1,
         classes=1,
+        encoder_weights_path=encoder_weight_path,
         activation=None)
+
+    if encoder_weight_path is not None and num_freeze_encoder_epochs > 0:
+        if logger is not None:
+            logger.info(f"Freezing encoder for the first {num_freeze_encoder_epochs} epochs.")
+        for param in network.encoder.parameters():
+            param.requires_grad = False
 
     # define loss function and optimizer
     bce = torch.nn.BCEWithLogitsLoss()
@@ -114,6 +129,11 @@ def train_model(
     best_val_iou = 0.0
     best_val_train_loss = 0.0
     for epoch in range(num_epochs):
+        if epoch == num_freeze_encoder_epochs and encoder_weight_path is not None:
+            if logger is not None:
+                logger.info(f"Unfreezing encoder after {num_freeze_encoder_epochs} epochs.")
+            for param in network.encoder.parameters():
+                param.requires_grad = True
         train_loss = train_one_epoch(network, train_loader, loss_fn, optimizer, device, desc=f"[{arch}_{encoder_name}] Train Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
         val_loss, val_dice, val_iou = val_one_epoch(network, test_loader, loss_fn, device, desc=f"[{arch}_{encoder_name}] Validation Epoch {epoch+1}/{num_epochs}", writer=writer, epoch=epoch)
 
@@ -122,7 +142,12 @@ def train_model(
             best_val_dice = val_dice
             best_val_iou = val_iou
             best_val_train_loss = train_loss
-            torch.save(network.state_dict(), f"trained_models/{run_name}_best_model.pth")
+            if save_dir_model is not None:
+                # create save directory if it doesn't exist
+                os.makedirs(save_dir_model, exist_ok=True)
+                torch.save(network.state_dict(), f"{save_dir_model}/{run_name}_best_model.pth")
+            else:
+                torch.save(network.state_dict(), f"trained_models/{run_name}_best_model.pth")
 
     metrics = {
         "hparam/val_loss": float(best_val_loss),
@@ -230,24 +255,13 @@ def val_one_epoch(network, dataloader, loss_fn, device, desc, writer, epoch):
     return avg_loss, avg_dice, avg_iou
 
 
-def check_completed_experiments(log_file="training.log"):
-    completed = set()
-    if os.path.exists(log_file):
-        with open(log_file, "r", encoding="utf-8") as f:
-            for line in f:
-                if "Finished training with architecture" in line:
-                    parts = line.split("Finished training with architecture '")[1].split("' and encoder '")
-                    arch = parts[0]
-                    encoder = parts[1].split("' and normalization '")[0]
-                    normalize = parts[1].split("' and normalization '")[1].split("' in ")[0]
-                    completed.add((arch, encoder, normalize))
-    return completed
 
-if __name__ == "__main__":
+
+def execute_train_segmentation_models_from_scratch():
     import logging
     import gc
     import time
-    log_file = "training.log"
+    log_file = "logs/training.log"
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -258,6 +272,20 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
+
+    def check_completed_experiments(log_file="training.log"):
+        completed = set()
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if "Finished training with architecture" in line:
+                        parts = line.split("Finished training with architecture '")[1].split("' and encoder '")
+                        arch = parts[0]
+                        encoder = parts[1].split("' and normalization '")[0]
+                        normalize = parts[1].split("' and normalization '")[1].split("' in ")[0]
+                        completed.add((arch, encoder, normalize))
+        return completed
+
     completed_experiments = check_completed_experiments(log_file)
     archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"] # 
     encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
@@ -296,3 +324,163 @@ if __name__ == "__main__":
                     torch.cuda.empty_cache()
                 except Exception as e:
                     logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
+
+def execute_train_segmentation_models_scratch_vs_pretrained():
+    import logging
+    import gc
+    import time
+    from segmentation_models_pytorch.encoders import get_encoder_names
+
+    def check_completed_experiments(log_file="training_scratch_vs_pretrained.log"):
+        completed = set()
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as f:
+                pretrained = False
+                for line in f:
+                    if "Finished training with architecture" in line:
+                        parts = line.split("Finished training with architecture '")[1].split("' and encoder '")
+                        arch = parts[0]
+                        encoder = parts[1].split("' and normalization '")[0]
+                        normalize = parts[1].split("' and normalization '")[1].split("' in ")[0]
+                        pretrained_path = Path(f"trained_models/encoder_models/pretrained_{encoder}_oct.pth") if pretrained else None
+                        completed.add((arch, encoder, normalize, pretrained_path))
+                    else:
+                        if "Start training" in line:
+                            pretrained = "pretrained encoder" in line
+        return completed
+
+    log_file = f"logs/training_scratch_vs_pretrained.log"
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+    if os.path.exists(log_file):
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        logger.info(f"Log file '{log_file}' already exists. Checking completed experiments to avoid duplicates.")
+        completed_experiments = check_completed_experiments(log_file)
+        logger.info(f"Found {len(completed_experiments)} completed experiments in log file.")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    archs = ["unet",  "deeplabv3+", "fpn", "pspnet", "segformer"] # "unet++", takes to long with "wrong" encoder.
+    encoders = get_encoder_names()
+    normalize_options = ["zscore"] # "none", "minmax", 
+
+    # prepare hyperparameter combinations and check completed experiments
+    combinations = list()
+    logger.info(f"Preparing hyperparameter combinations.")
+    skipped_encoder = ["vgg19", "xception", "densenet201", "densenet169", "dpn68b", "resnet50"]
+    for arch in archs:
+        for encoder in encoders:
+            if "timm" in encoder:
+                logger.info(f"Skipping encoder '{encoder}' from timm library.")
+                continue
+            if encoder in skipped_encoder:
+                logger.info(f"Skipping encoder '{encoder}'.")
+                continue
+            
+            encoder_pretrained_path = Path(f"trained_models/encoder_models/pretrained_{encoder}_oct.pth")
+            if not encoder_pretrained_path.exists():
+                logger.warning(f"Pretrained weights for encoder '{encoder}' not found at '{encoder_pretrained_path}'. Skipping pretrained experiment for this encoder.")
+                continue
+            for normalize in normalize_options:
+                scratch_combo = (arch, encoder, normalize, None)
+                if scratch_combo in completed_experiments:
+                    logger.info(f"Skipping already completed scratch experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+                else:
+                    combinations.append(scratch_combo)
+                pretrained_combo = (arch, encoder, normalize, encoder_pretrained_path)
+                if pretrained_combo in completed_experiments:
+                    logger.info(f"Skipping already completed pretrained experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+                else:
+                    combinations.append((arch, encoder, normalize, f"trained_models/encoder_models/pretrained_{encoder}_oct.pth"))  # pretrained
+
+    n_models = len(combinations)
+    current_model_n = 1
+    logger.info(f"Starting training with {n_models} total experiments.")
+    
+    for arch, encoder, normalize, encoder_path in combinations:
+        if encoder_path is None:
+            logger.info(f"Start training from scratch with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+        else:
+            logger.info(f"Start training with pretrained encoder from '{encoder_path}' with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+        try:
+            start = time.time()
+            train_model(
+                arch=arch, 
+                encoder_name=encoder, 
+                encoder_weights=None, 
+                encoder_weight_path=str(encoder_path) if encoder_path is not None else None,
+                num_epochs=20, 
+                num_freeze_encoder_epochs=10 if encoder_path is not None else 0,
+                lr=1e-3, 
+                weight_decay=1e-4, 
+                path=r"datasets/OCTDatasetOIMHS", 
+                train_portion=0.05, 
+                augment=True, 
+                max_rotate_deg=0, 
+                hflip_p=0.5, 
+                normalize=normalize, 
+                batch_size=16, 
+                num_workers=4, 
+                gpu=True,
+                log_dir="runs/scratchVSpretrained",
+                save_dir_model="trained_models/scratchVSpretrained")
+            logger.info(f"Finished training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}' in {(time.time() - start)/60:.2f} minutes")
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
+        logger.info(f"Completed experiment {current_model_n}/{n_models}")
+        current_model_n += 1
+    # pretrained_base_path = Path("trained_models/encoder_models")
+    # for arch in archs:
+    #     for encoder in encoders:
+    #         encoder_pretrained_path = pretrained_base_path / f"pretrained_{encoder}_oct.pth"
+    #         if not encoder_pretrained_path.exists():
+    #             logger.warning(f"Pretrained weights for encoder '{encoder}' not found at '{encoder_pretrained_path}'. Skipping pretrained experiment for this encoder.")
+    #             continue
+    #         for normalize in normalize_options:
+    #             for encoder_path in [None, encoder_pretrained_path]:
+    #                 if encoder_path is None:
+    #                     logger.info(f"Start training from scratch with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+    #                 else:
+    #                     logger.info(f"Start training with pretrained encoder from '{encoder_path}' with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+    #                 try:
+    #                     start = time.time()
+    #                     train_model(
+    #                         arch=arch, 
+    #                         encoder_name=encoder, 
+    #                         encoder_weights=None, 
+    #                         encoder_weight_path=str(encoder_path) if encoder_path is not None else None,
+    #                         num_epochs=20, 
+    #                         num_freeze_encoder_epochs=10 if encoder_path is not None else 0,
+    #                         lr=1e-3, 
+    #                         weight_decay=1e-4, 
+    #                         path=r"datasets/OCTDatasetOIMHS", 
+    #                         train_portion=0.05, 
+    #                         augment=True, 
+    #                         max_rotate_deg=0, 
+    #                         hflip_p=0.5, 
+    #                         normalize=normalize, 
+    #                         batch_size=16, 
+    #                         num_workers=4, 
+    #                         gpu=True,
+    #                         log_dir="runs/scratchVSpretrained",
+    #                         save_dir_model="trained_models/scratchVSpretrained")
+    #                     logger.info(f"Finished training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}' in {(time.time() - start)/60:.2f} minutes")
+    #                     gc.collect()
+    #                     torch.cuda.empty_cache()
+    #                 except Exception as e:
+    #                     logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
+    #                 logger.info(f"Completed experiment {current_model_n}/{n_models}")
+    #                 current_model_n += 1
+
+if __name__ == "__main__":
+    execute_train_segmentation_models_scratch_vs_pretrained()
