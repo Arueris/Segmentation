@@ -18,7 +18,8 @@ class OIMHSDataset(Dataset):
                  max_rotate_deg: float = 0,
                  hflip_p: float = 0.5,
                  return_numpy: bool = False,
-                 normalize: str = "zscore"  # "none" | "minmax" | "zscore"
+                 normalize: str = "zscore",  # "none" | "minmax" | "zscore",
+                 resize: tuple[int, int] | None = (512, 512)
                  ):
         """
         Dataset für 2D OCT B-Scans + binäre Choroid-Maske.
@@ -42,6 +43,8 @@ class OIMHSDataset(Dataset):
         self.hflip_p = float(hflip_p)
         self.return_numpy = return_numpy
         self.normalize = normalize
+
+        self.resize = resize    # it is not used just because of the pretrained encoder use this attribute from the other dataset
 
         # --- Paare über Dateinamen matchen, damit Bild <-> Maske korrekt ---
         self.samples = []
@@ -146,7 +149,7 @@ def get_dataloader(participants: list[str], train_portion: float = 0.8,
                    path = r"F:/Python/SAM2/OCTDatasetOIMHS", augment: bool = True, 
                    max_rotate_deg: float = 0, hflip_p: float = 0.5, 
                    return_numpy: bool = False, normalize: str = "none",
-                   batch_size: int = 16, num_workers: int = 4):
+                   batch_size: int = 16, num_workers: int = 0):
     n_train = int(len(participants) * train_portion)
     dataset_train = OIMHSDataset(participants[:n_train],
                            path = path, 
@@ -166,10 +169,53 @@ def get_dataloader(participants: list[str], train_portion: float = 0.8,
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
     return train_loader, test_loader
 
+def get_dataloader_encoder_pretraining(participants: list[str],
+                                       portions: tuple[float, float, float] = (0.65, 0.05, 0.3), 
+                                       path = r"F:/Python/SAM2/OCTDatasetOIMHS", 
+                                       augment: bool = True, 
+                                       max_rotate_deg: float = 0, 
+                                       hflip_p: float = 0.5, 
+                                       return_numpy: bool = False, 
+                                       normalize: str = "none",
+                                       batch_size: int = 16, 
+                                       num_workers: int = 0):
+
+    if sum(portions) != 1.0:
+        raise ValueError("Portions must sum to 1.0")
+    n = len(participants)
+    n_pretrain = int(n * portions[0])
+    n_train = int(n * portions[1])    
+
+    dataset_pretrain = OIMHSDataset(participants[:n_pretrain],
+                             path = path, 
+                             augment = augment, 
+                             max_rotate_deg = max_rotate_deg, 
+                             hflip_p = hflip_p, 
+                             return_numpy = return_numpy, 
+                             normalize = normalize)
+    dataset_train = OIMHSDataset(participants[n_pretrain:n_pretrain+n_train], 
+                         path = path, 
+                         augment = augment,  # Keine Augmentierungen für Validierung
+                         max_rotate_deg = max_rotate_deg, 
+                         hflip_p = hflip_p, 
+                         return_numpy = return_numpy, 
+                         normalize = normalize)
+    dataset_test = OIMHSDataset(participants[n_pretrain+n_train:], 
+                         path = path, 
+                         augment = False,  # Keine Augmentierungen für Validierung
+                         max_rotate_deg = 0, 
+                         hflip_p = 0, 
+                         return_numpy = return_numpy, 
+                         normalize = normalize)
+    pretrain_loader = torch.utils.data.DataLoader(dataset_pretrain, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+    return pretrain_loader, train_loader, test_loader
+
 
 if __name__ == "__main__":
     import os
     path: str=Path(r"F:/Python/SAM2/OCTDatasetOIMHS")
     participants = ["1", "2"] #  os.listdir(path / "Images")
     dataset = OIMHSDataset(participants, path)
-
+    

@@ -201,18 +201,28 @@ def pretrain_encoder(
     save_path="pretrained_encoder.pth",
     parameter_count_threshold=22e6,
     log_dir="runs/encoder_pretraining",
-    logger=None
+    logger=None,
+    loader: torch.utils.data.DataLoader | None = None
 ):
 
     device = torch.device(device if torch.cuda.is_available() else "cpu")
 
     # data
-    loader = get_dataloader(data_path, batch_size, num_workers)
+    if loader is None:
+        if logger is not None:
+            logger.info(f"Loading dataset from {data_path} with batch_size={batch_size}, num_workers={num_workers}")
+        loader = get_dataloader(data_path, batch_size, num_workers)
+    else:
+        if logger is not None:
+            logger.info(f"Using provided dataloader with batch_size={batch_size}, num_workers={num_workers}")
+    if logger is not None:
+        logger.info(f"Dataset size: {len(loader.dataset)} images")
 
     # model
     encoder = build_encoder(encoder_name=encoder_name, in_channels=1)
     if count_params(encoder) > parameter_count_threshold:
-        logger.warning(f"Encoder '{encoder_name}' has {count_params(encoder):.2e} parameters, which exceeds the threshold of {parameter_count_threshold:.2e}. Consider using a smaller encoder to avoid OOM issues.")
+        if logger is not None:
+            logger.warning(f"Encoder '{encoder_name}' has {count_params(encoder):.2e} parameters, which exceeds the threshold of {parameter_count_threshold:.2e}. Consider using a smaller encoder to avoid OOM issues.")
         return
     model = EncoderAutoencoder(encoder).to(device)
 

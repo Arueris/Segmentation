@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import torch
 import segmentation_models_pytorch as smp
@@ -9,8 +11,8 @@ def build_smp_model(
     in_channels: int = 1,                 # OCT: 1
     classes: int = 1,                     # binary: 1 logit channel
     activation: str | None = None,        # None -> logits (recommended)
-    encoder_weight_path: str | None = None,  # Pfad zu lokal gespeicherten Encoder-Gewichten (optional)
-    **kwargs
+    encoder_weights_path: str | None = None,  # Pfad zu lokal gespeicherten Encoder-Gewichten (optional)
+    logger: logging.Logger | None = None
 ):
     """
     Factory für SMP-Modelle.
@@ -49,14 +51,19 @@ def build_smp_model(
         encoder_weights=encoder_weights,
         in_channels=in_channels,
         classes=classes,
-        activation=activation,
-        **kwargs
+        activation=activation
     )
 
-    if encoder_weight_path is not None:
-        print(f"Lade Encoder-Gewichte von '{encoder_weight_path}'...")
-        encoder_state_dict = torch.load(encoder_weight_path, map_location="cpu")
+    if encoder_weights_path is not None:
+        if logger is not None:
+            logger.info(f"Load encoder weights from '{encoder_weights_path}'...")
+        else:
+            print(f"Load encoder weights from '{encoder_weights_path}'...")
+        encoder_state_dict = torch.load(encoder_weights_path, map_location="cpu")
         model.encoder.load_state_dict(encoder_state_dict)
-        print("Encoder-Gewichte geladen.")
+        if logger is not None:
+            logger.info("Encoder weights loaded.")
+        else:
+            print("Encoder weights loaded.")
 
     return model
