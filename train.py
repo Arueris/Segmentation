@@ -56,6 +56,9 @@ def train_model(
         logger: logging.Logger | None = None,
         save_dir_model: str | None = None
 ):
+    
+    os.makedirs(log_dir, exist_ok=True)
+
     # setup writer for TensorBoard
     run_name = f"{arch}_{encoder_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     writer = SummaryWriter(log_dir=f"{log_dir}/{run_name}")
@@ -157,10 +160,14 @@ def train_model(
                 torch.save(network.state_dict(), f"trained_models/{run_name}_best_model.pth")
 
     metrics = {
-        "hparam/val_loss": float(best_val_loss),
-        "hparam/val_dice": float(best_val_dice),
-        "hparam/val_iou": float(best_val_iou),
-        "hparam/train_loss_at_best_val": float(best_val_train_loss)
+        "hparam/last_val_loss": float(val_loss),
+        "hparam/last_val_dice": float(val_dice),
+        "hparam/last_val_iou": float(val_iou),
+        "hparam/last_val_train_loss": float(train_loss),
+        "hparam/best_val_loss": float(best_val_loss),
+        "hparam/best_val_dice": float(best_val_dice),
+        "hparam/best_val_iou": float(best_val_iou),
+        "hparam/best_val_train_loss": float(best_val_train_loss)
     }
     writer.add_hparams(hparams, metrics)
     writer.flush()
@@ -171,6 +178,7 @@ def train_model(
     del network
     del optimizer
     torch.cuda.empty_cache()
+    return float(val_loss), float(val_dice), float(val_iou), float(train_loss)
 
 def train_one_epoch(network, dataloader, loss_fn, optimizer, device, desc, writer, epoch):
     network.train()
@@ -272,7 +280,13 @@ def execute_train_segmentation_models_from_scratch():
     import logging
     import gc
     import time
-    log_file = "logs/training.log"
+
+    summary_log = open("logs/summary_training.csv", "a", encoding="utf-8")
+
+    header = ",".join(["arch", "encoder", "normalization", "train_dataset_length", "test_dataset_length", "val_loss", "val_dice", "val_iou", "val_train_loss"])
+    summary_log.write(header + "\n")
+
+    log_file = f"logs/training.log"
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -295,46 +309,89 @@ def execute_train_segmentation_models_from_scratch():
                         encoder = parts[1].split("' and normalization '")[0]
                         normalize = parts[1].split("' and normalization '")[1].split("' in ")[0]
                         completed.add((arch, encoder, normalize))
+        logger.info(f"Found {len(completed)} completed experiments in log file '{log_file}'.")
         return completed
 
     completed_experiments = check_completed_experiments(log_file)
-    archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"] # 
-    encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
-    normalize_options = ["none", "minmax", "zscore"]
-    logger.info(f"Starting training with {len(archs)*len(encoders)*len(normalize_options)} total experiments (after filtering completed ones)")
-    for arch in archs:
-        for encoder in encoders:
-            for normalize in normalize_options:
-                if (arch, encoder, normalize) in completed_experiments:
-                    logger.info(f"Skipping already completed experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
-                    continue
-                if arch == "unet++" and encoder == "resnet50":
-                    logger.info(f"Skipping incompatible combination of architecture '{arch}' and encoder '{encoder}'")
-                    continue
-                logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
-                try:
-                    start = time.time()
-                    train_model(
-                        arch=arch, 
-                        encoder_name=encoder, 
-                        encoder_weights=None, 
-                        num_epochs=20, 
-                        lr=1e-3, 
-                        weight_decay=1e-4, 
-                        path=r"datasets/OCTDatasetOIMHS", 
-                        train_portion=0.7, 
-                        augment=True, 
-                        max_rotate_deg=0, 
-                        hflip_p=0.5, 
-                        normalize=normalize, 
-                        batch_size=16, 
-                        num_workers=4, 
-                        gpu=True)
-                    logger.info(f"Finished training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}' in {(time.time() - start)/60:.2f} minutes")
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                except Exception as e:
-                    logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
+    archs = ["unet", "deeplabv3+", "fpn", "pspnet", "segformer", "unet++"] # 
+    # encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
+    encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobilenet_s4", "resnet18", "resnet34",
+                "vgg11_bn", "vgg13_bn", "vgg19_bn"]
+    normalize_options = ["zscore"] # "none", "minmax", 
+
+    # create combinations of hyperparameters
+    hyperparameter_combinations = [
+        (arch, encoder, normalize)
+        for arch in archs
+        for encoder in encoders
+        for normalize in normalize_options
+        if (arch, encoder, normalize) not in completed_experiments
+    ]
+
+    # prepare participants list for the dataloader
+    logger.info(f"Generating participants list for the dataloader.")
+    datapath = r"F:/Python/SAM2/OCTDatasetOIMHS"
+    path = Path(datapath)
+    participants = os.listdir(path / "Images")
+    
+
+    logger.info(f"Starting training with {len(hyperparameter_combinations)} total experiments (after filtering completed ones)")
+    for arch, encoder, normalize in hyperparameter_combinations:
+        if (arch, encoder, normalize) in completed_experiments:
+            logger.info(f"Skipping already completed experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+            continue
+        if arch == "unet++" and encoder == "resnet50":
+            logger.info(f"Skipping incompatible combination of architecture '{arch}' and encoder '{encoder}'")
+            continue
+        logger.info(f"Start training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
+        try:
+            
+            train_loder, test_loader = dataset.get_dataloader(
+                participants,
+                train_portion=0.7,
+                path=datapath,
+                augment=True,
+                max_rotate_deg=0,
+                hflip_p=0.5,
+                return_numpy=False,
+                normalize=normalize,
+            )
+            logger.info(f"Length of train dataset: {len(train_loder.dataset)}, length of test dataset: {len(test_loader.dataset)}")
+
+            start = time.time()
+            val_loss, val_dice, val_iou, train_loss = train_model(
+                arch=arch, 
+                encoder_name=encoder, 
+                encoder_weights=None, 
+                num_epochs=20, 
+                lr=1e-3, 
+                weight_decay=1e-4, 
+                path=datapath, 
+                train_loader=train_loder,
+                test_loader=test_loader,
+                # train_portion=0.7, 
+                # augment=True, 
+                # max_rotate_deg=0, 
+                # hflip_p=0.5, 
+                # normalize=normalize, 
+                # batch_size=16, 
+                # num_workers=4, 
+                logger=logger,
+                log_dir="runs/StandardFromScratch",
+                save_dir_model="trained_models/StandardFromScratch",
+                gpu=True)
+            
+            summary_log.write(f"{arch},{encoder},{normalize},{len(train_loder.dataset)},{len(test_loader.dataset)},{float(val_loss)},{float(val_dice)},{float(val_iou)},{float(train_loss)}\n")
+            summary_log.flush()
+            logger.info(f"Finished training with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}' in {(time.time() - start)/60:.2f} minutes")
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            summary_log.write(f"{arch},{encoder},{normalize},ERROR,ERROR,ERROR,ERROR,ERROR,ERROR\n")
+            logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
+
+        summary_log.flush()
+        summary_log.close()
 
 def execute_train_segmentation_models_scratch_vs_pretrained():
     import logging
@@ -653,4 +710,5 @@ def execute_train_unsupervised_pretrain_vs_from_scratch():
 
 if __name__ == "__main__":
     # execute_train_segmentation_models_scratch_vs_pretrained()
-    execute_train_unsupervised_pretrain_vs_from_scratch()
+    # execute_train_unsupervised_pretrain_vs_from_scratch()
+    execute_train_segmentation_models_from_scratch()
