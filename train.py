@@ -315,7 +315,7 @@ def execute_train_segmentation_models_from_scratch():
     completed_experiments = check_completed_experiments(log_file)
     archs = ["unet", "deeplabv3+", "fpn", "pspnet", "segformer", "unet++"] # 
     # encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
-    encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobilenet_s4", "resnet18", "resnet34",
+    encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobileone_s4", "resnet18", "resnet34",
                 "vgg11_bn", "vgg13_bn", "vgg19_bn"]
     normalize_options = ["zscore"] # "none", "minmax", 
 
@@ -330,7 +330,7 @@ def execute_train_segmentation_models_from_scratch():
 
     # prepare participants list for the dataloader
     logger.info(f"Generating participants list for the dataloader.")
-    datapath = r"F:/Python/SAM2/OCTDatasetOIMHS"
+    datapath = r"datasets/OCTDatasetOIMHS" # r"F:/Python/SAM2/OCTDatasetOIMHS"
     path = Path(datapath)
     participants = os.listdir(path / "Images")
     
@@ -390,8 +390,8 @@ def execute_train_segmentation_models_from_scratch():
             summary_log.write(f"{arch},{encoder},{normalize},ERROR,ERROR,ERROR,ERROR,ERROR,ERROR\n")
             logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
 
-        summary_log.flush()
-        summary_log.close()
+    summary_log.flush()
+    summary_log.close()
 
 def execute_train_segmentation_models_scratch_vs_pretrained():
     import logging
