@@ -5,9 +5,103 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
+import zipfile
 
 import torchvision.transforms.functional as TF
 from torchvision.transforms import InterpolationMode
+
+class RetCurvDataset(Dataset):
+    def __init__(self,
+                 pIds: list[str],
+                 path_raw: str = r"\\?\UNC\zvsl.mvl6.uni-tuebingen.de\Employees\06_Datasets\RetCurv\Plex Elite",
+                 path_seg: str = r"\\?\UNC\zvsl.mvl6.uni-tuebingen.de\Employees\06_Datasets\RetCurv\OCT_Segmented",
+                 augment: bool = True,
+                 hflip_p: float = 0.5,
+                 normalize: str = "zscore",  # "none" | "minmax" | "zscore",
+                 resize: tuple[int, int] | None = (512, 512)
+                 ):
+        self.pIds = pIds
+        self.root_raw = Path(path_raw)
+        self.root_seg = Path(path_seg)
+        self.augment = augment
+        self.hflip_p = float(hflip_p)
+        self.normalize = normalize
+
+        self.resize = resize    # it is not used just because of the pretrained encoder use this attribute from the other dataset
+
+        zip_files = list(self.root_seg.rglob("*MLS_Layer_location_maps.zip"))
+
+        self.samples = list()
+        for pId in self.pIds:
+            p_path = self.root_raw / pId
+            cube_names = [x for x in os.listdir(p_path) if "_Cube" in x]
+            for cube_name in cube_names:
+                zip_file_matches = [x for x in zip_files if pId in str(x) and cube_name.strip(pId) in str(x)]
+
+                if len(zip_file_matches) == 1:
+                    for i in range(1024):
+                        self.samples.append((p_path / cube_name, zip_file_matches[0], i))
+    
+    def __len__(self):
+        return len(self.samples)
+    
+    def _load_image(self, path: Path, idx: int) -> np.ndarray:
+        cube_path = next(path.glob("*_cube_z.img"))
+        cube = np.memmap(cube_path, dtype=np.uint8, mode='r', shape=(1024, 1536, 1024))
+        bscan = cube[idx]
+        bscan = np.flip(bscan, axis=0)
+        return bscan
+    
+    def _load_mask(self, zip_path: Path, idx: int) -> np.ndarray:
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            files = z.namelist()
+            bm_file = next(f for f in files if "BMSeg_location.png" in f)
+            chor_file = next(f for f in files if "choroidSeg_location.png" in f)
+            bm = np.array(Image.open(z.open(bm_file)))
+            chor = np.array(Image.open(z.open(chor_file)))
+        bm_anno = bm[idx]
+        bm_anno = np.flip(bm_anno, axis=0)
+        chor_anno = chor[idx]
+        chor_anno = np.flip(chor_anno, axis=0)
+        y = np.arange(1536)[:, None]
+        mask = ((y >= bm_anno) & (y <= chor_anno)).astype(np.uint8)
+        return mask
+    
+    def _normalize_image(self, img: np.ndarray) -> np.ndarray:
+        if self.normalize == "none":
+            return img
+        if self.normalize == "minmax":
+            mn, mx = float(img.min()), float(img.max())
+            if mx > mn:
+                return (img - mn) / (mx - mn)
+            return img * 0.0
+        if self.normalize == "zscore":
+            img = (img - img.mean()) / (img.std() + 1e-8)
+            return img
+        raise ValueError(f"Unknown normalize='{self.normalize}'")
+
+    def _augment_pair(self, img_t: torch.Tensor, mask_t: torch.Tensor):
+        # img_t: (1,H,W) float32, mask_t: (1,H,W) uint8/float
+        # Horizontal flip
+        if random.random() < self.hflip_p:
+            img_t = TF.hflip(img_t)
+            mask_t = TF.hflip(mask_t)
+        return img_t, mask_t
+    
+    def __getitem__(self, idx):
+        cube_path, zip_path, bscan_idx = self.samples[idx]
+        img = self._load_image(cube_path, bscan_idx)   # (H,W) uint8
+        mask = self._load_mask(zip_path, bscan_idx)    # (H,W) uint8 {0,1}
+
+        img = self._normalize_image(img)
+
+        img_t = torch.from_numpy(img).unsqueeze(0).float()                 # (1,H,W) float32
+        mask_t = torch.from_numpy(mask).unsqueeze(0).float()               # (1,H,W) float32 {0,1}
+
+        if self.augment:
+            img_t, mask_t = self._augment_pair(img_t, mask_t)
+
+        return img_t, mask_t
 
 
 class OIMHSDataset(Dataset):

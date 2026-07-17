@@ -67,3 +67,16 @@ def build_smp_model(
             print("Encoder weights loaded.")
 
     return model
+
+
+
+
+import segmentation_models_pytorch as smp
+
+model = smp.create_model(
+    arch="unet",                # "unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer", ...
+    encoder_name="resnet34",    # "resnet34", "resnet50", "efficientnet-b0", ... 
+    encoder_weights=None,       # None | "imagenet" ...
+    in_channels=1,              # Gray: 1 | RGB: 3
+    classes=1                   # binary: 1 logit channel
+)
