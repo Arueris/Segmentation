@@ -316,7 +316,7 @@ def execute_train_segmentation_models_from_scratch():
     archs = ["unet", "deeplabv3+", "fpn", "pspnet", "segformer", "unet++"] # 
     # encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
     encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobileone_s4", "resnet18", "resnet34",
-                "vgg11_bn", "vgg13_bn", "vgg19_bn"]
+                "vgg11_bn", "vgg13_bn", "vgg16_bn", "vgg19_bn"]
     normalize_options = ["zscore"] # "none", "minmax", 
 
     # create combinations of hyperparameters
