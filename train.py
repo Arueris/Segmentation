@@ -8,9 +8,10 @@ import torch
 import segmentation_models_pytorch as smp
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
+from datetime import datetime, time
 import torch
 import torchvision
+import pretrain_encoder
 
 def to_3ch(x):
     # x: (B,1,H,W) -> (B,3,H,W)
@@ -54,14 +55,22 @@ def train_model(
         gpu: bool = True,
         log_dir: str = "runs",
         logger: logging.Logger | None = None,
-        save_dir_model: str | None = None
+        save_dir_model: str | None = None,
+        run_name: str | None = None
 ):
     
     os.makedirs(log_dir, exist_ok=True)
 
     # setup writer for TensorBoard
-    run_name = f"{arch}_{encoder_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    writer = SummaryWriter(log_dir=f"{log_dir}/{run_name}")
+    if run_name is None:
+        run_name = f"{arch}_{encoder_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    log_path = Path(log_dir) / run_name
+    while log_path.exists():
+        logger.warning(f"Log path '{log_path}' already exists. Appending '_1' to run name.")
+        run_name += "_1"
+        log_path = Path(log_dir) / run_name
+    writer = SummaryWriter(log_dir=log_path)
 
     # add parameters to writer
     hparams = {
@@ -102,7 +111,7 @@ def train_model(
             num_workers=num_workers
         )
     else:
-        logger.info(f"Using provided dataloaders. Length of train dataset: {len(train_loader.dataset)}, length of test dataset: {len(test_loader.dataset)}")
+        logger.info(f"Using provided dataloaders.")
     logger.info(f"Length of train dataset: {len(train_loader.dataset)}, length of test dataset: {len(test_loader.dataset)}")
 
     #load model
@@ -159,7 +168,18 @@ def train_model(
             else:
                 torch.save(network.state_dict(), f"trained_models/{run_name}_best_model.pth")
 
+    if save_dir_model is not None:
+        os.makedirs(save_dir_model, exist_ok=True)
+        torch.save(network.state_dict(), f"{save_dir_model}/{run_name}_final_model.pth")
+    else:
+        torch.save(network.state_dict(), f"trained_models/{run_name}_final_model.pth")
+
+    parameter_count = pretrain_encoder.count_parameters(network)
+    inference_time = pretrain_encoder.measure_inference_time(network, device=device, input_size=(1, 1, 256, 256), n_runs=10)
+
     metrics = {
+        "hparam/parameter_count": parameter_count,
+        "hparam/inference_time": inference_time,
         "hparam/last_val_loss": float(val_loss),
         "hparam/last_val_dice": float(val_dice),
         "hparam/last_val_iou": float(val_iou),
@@ -178,7 +198,7 @@ def train_model(
     del network
     del optimizer
     torch.cuda.empty_cache()
-    return float(val_loss), float(val_dice), float(val_iou), float(train_loss)
+    return parameter_count, inference_time, float(val_loss), float(val_dice), float(val_iou), float(train_loss), float(best_val_loss), float(best_val_dice), float(best_val_iou), float(best_val_train_loss)
 
 def train_one_epoch(network, dataloader, loss_fn, optimizer, device, desc, writer, epoch):
     network.train()
@@ -511,7 +531,6 @@ def execute_train_segmentation_models_scratch_vs_pretrained():
         logger.info(f"Completed experiment {current_model_n}/{n_models}")
         current_model_n += 1
 
-
 def execute_train_unsupervised_pretrain_vs_from_scratch():
     import logging
     import gc
@@ -556,7 +575,7 @@ def execute_train_unsupervised_pretrain_vs_from_scratch():
         )
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
-    archs = ["unet", "unet++", "deeplabv3+", "fpn", "pspnet", "segformer"] # "unet++", takes to long with "wrong" encoder.
+    archs = ["unet", "deeplabv3+", "fpn", "pspnet", "segformer", "unet++"] # "unet++", takes to long with "wrong" encoder.
     encoders = get_encoder_names()
     normalize_options = ["zscore"] # "none", "minmax", 
     unetpp_encoders = ["resnet34", "resnet18", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
@@ -641,20 +660,20 @@ def execute_train_unsupervised_pretrain_vs_from_scratch():
             logger.error(f"Error during pretraining of encoder '{encoder_name}': {e}")
 
     ###### new combinations, because of errors in the train script
-    combinations = [
-        ("deeplabv3+", "mit_b0", "zscore", "placeholder"),
-        ("deeplabv3+", "mit_b1", "zscore", "placeholder"),
-        ("deeplabv3+", "mobilenet_v2", "zscore", "placeholder"),
-        ("deeplabv3+", "mobileone_s0", "zscore", "placeholder"),
-        ("unet", "mit_b0", "zscore", "placeholder"),
-        ("unet", "mit_b1", "zscore", "placeholder"),
-        ("unet", "mobilenet_v2", "zscore", "placeholder"),
-        ("unet", "mobileone_s0", "zscore", "placeholder"),
-        ("unet", "mobileone_s1", "zscore", "placeholder"),
-        ("unet", "mobileone_s2", "zscore", "placeholder"),
-        ("unet", "mobileone_s3", "zscore", "placeholder"),
-        ("unet", "mobileone_s4", "zscore", "placeholder")
-    ]
+    # combinations = [
+    #     ("deeplabv3+", "mit_b0", "zscore", "placeholder"),
+    #     ("deeplabv3+", "mit_b1", "zscore", "placeholder"),
+    #     ("deeplabv3+", "mobilenet_v2", "zscore", "placeholder"),
+    #     ("deeplabv3+", "mobileone_s0", "zscore", "placeholder"),
+    #     ("unet", "mit_b0", "zscore", "placeholder"),
+    #     ("unet", "mit_b1", "zscore", "placeholder"),
+    #     ("unet", "mobilenet_v2", "zscore", "placeholder"),
+    #     ("unet", "mobileone_s0", "zscore", "placeholder"),
+    #     ("unet", "mobileone_s1", "zscore", "placeholder"),
+    #     ("unet", "mobileone_s2", "zscore", "placeholder"),
+    #     ("unet", "mobileone_s3", "zscore", "placeholder"),
+    #     ("unet", "mobileone_s4", "zscore", "placeholder")
+    # ]
     n_models = len(combinations)
     
     logger.info(f"Starting training with {n_models} total experiments.")
@@ -664,7 +683,7 @@ def execute_train_unsupervised_pretrain_vs_from_scratch():
         #     logger.warning(f"Encoder weights for '{encoder_path}' do not exist. Skipping this experiment.")
         #     current_model_n += 2 # because we skip both the pretrained and the from-scratch experiment for this combination
         #     continue
-        for pretrained_encoder in [None]: # encoder_path
+        for pretrained_encoder in [None, encoder_path]:
             # if (arch, encoder, normalize, pretrained_encoder) in completed_experiments:
                 # if pretrained_encoder is None:
                 #     logger.info(f"Skipping already completed scratch experiment with architecture '{arch}' and encoder '{encoder}' and normalization '{normalize}'")
@@ -707,6 +726,243 @@ def execute_train_unsupervised_pretrain_vs_from_scratch():
                 logger.error(f"Error at {arch} and {encoder} and Normalisierung {normalize}: {e}")
             logger.info(f"Completed experiment {current_model_n}/{n_models}")
             current_model_n += 1
+
+def execute_experiment2_and_experiment3():
+    import logging
+    import gc
+    import pretrain_encoder
+    import json
+
+    log_run_dir = Path("runs/experiment2and3")
+    os.makedirs(log_run_dir, exist_ok=True)
+
+    def read_combinations(summary_log_path):
+        combinations_done = set()
+        if os.path.exists(summary_log_path):
+            with open(summary_log_path, "r", encoding="utf-8") as f:
+                next(f)  # skip header
+                for line in f:
+                    parts = line.strip().split(",")
+                    arch = parts[0]
+                    encoder = parts[1]
+                    normalization = parts[2]
+                    pretrained = parts[3]
+                    combinations_done.add((arch, encoder, normalization, pretrained))
+        return combinations_done
+
+    # define logger
+    summary_log_path = "logs/summary_exp2and3.csv"
+    combinations_done = read_combinations(summary_log_path)
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+        
+    if not os.path.exists(summary_log_path):
+        summary_log = open(summary_log_path, "w", encoding="utf-8")
+        header = ",".join(["arch", "encoder", "normalization", "pretrained", "train_dataset_length", "test_dataset_length", "parameter_count", "inference_time", "last_val_loss", "last_val_dice", "last_val_iou", "last_val_train_loss", "best_val_loss", "best_val_dice", "best_val_iou", "best_val_train_loss"])
+        summary_log.write(header + "\n")
+    else:
+        summary_log = open(summary_log_path, "a", encoding="utf-8")
+        
+
+
+    log_file = f"logs/training_exp2and3.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    
+    
+    # prepare combinations
+    archs = ["unet", "deeplabv3+", "fpn", "pspnet", "segformer", "unet++"] # 
+    # encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
+    encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobileone_s4", "resnet18", "resnet34",
+                "vgg11_bn", "vgg13_bn", "vgg19_bn"]
+    unetpp_exclude_encoders = ["vgg11_bn", "vgg13_bn", "vgg19_bn", "mobileone_s3", "mobileone_s4"]
+    # normalize_options = ["zscore"] # "none", "minmax", 
+    normalization = "zscore"  # fixed normalization for this experiment
+
+    pretrained_options = [None, "other-dataset", "same-dataset"]  # None: from scratch, same-dataset: pretrained on same dataset, other-dataset: pretrained on other dataset
+
+    # create combinations of hyperparameters
+    hyperparameter_combinations = [
+        (arch, encoder, normalization, pretrained)
+        for arch in archs
+        for encoder in encoders
+        for pretrained in pretrained_options
+        if (arch, encoder, normalization, pretrained) not in combinations_done
+    ]
+
+    unetpp_combinations = [
+        (arch, encoder, normalization, pretrained) 
+        for arch, encoder, normalization, pretrained in hyperparameter_combinations 
+        if arch == "unet++" and encoder in unetpp_exclude_encoders]
+    if unetpp_combinations:
+        logger.info(f"Skipping {len(unetpp_combinations)} incompatible combinations of architecture 'unet++' and excluded encoders: {unetpp_exclude_encoders}")
+        hyperparameter_combinations = [combo for combo in hyperparameter_combinations if combo not in unetpp_combinations]
+
+
+    # prepare dataloaders
+    #   - train_loader, pretrain_loader, test_loader (0.05, 0.65, 0.3)
+    #   - pretrain_loader: use other dataset (experimetn 2)
+
+    train_loader, pretrain_loader, test_loader = dataset.get_dataloader_encoder_pretraining(
+        participants=os.listdir(Path(r"datasets/OCTDatasetOIMHS") / "Images"),
+        portions=(0.05, 0.65, 0.3),
+        path=r"datasets/OCTDatasetOIMHS",
+        augment=True,
+        max_rotate_deg=0,
+        hflip_p=0.5,
+        return_numpy=False,
+    )
+
+    logger.info(f"Length of train dataset: {len(train_loader.dataset)}, length of pretrain dataset: {len(pretrain_loader.dataset)}, length of test dataset: {len(test_loader.dataset)}")
+    with open("logs/participant_split.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "train": [p for p in train_loader.dataset.participants],
+            "pretrain": [p for p in pretrain_loader.dataset.participants],
+            "test": [p for p in test_loader.dataset.participants]
+        }, f, indent=4)
+
+    pretrain_loader_other_dataset = pretrain_encoder.get_dataloader(
+        data_path=r"datasets/OCTDatasetNormalDrusenCNV",  
+        batch_size=16,
+        num_workers=0,
+        augment=True,
+        max_rotate_deg=0,
+        hflip_p=0.5,
+        return_numpy=False,
+        num_workers=0,
+    )
+    logger.info(f"Length of pretrain dataset (other dataset): {len(pretrain_loader_other_dataset.dataset)}")
+
+
+    # pretrain all used encoders with other dataset and same dataset
+    # save pretrained weights in "trained_models/encoder_models/OtherDataset" and "trained_models/encoder_models/SameDataset"
+    logger.info(f"Start pretraining encoders with other dataset and same dataset.")
+
+    encoder_summary_path = Path("logs/encoder_pretraining_summary.csv")
+    if not encoder_summary_path.exists():
+        encoder_summary = open(encoder_summary_path, "w", encoding="utf-8")
+        encoder_summary.write("encoder,pretrained_on,dataset_length,parameter_count,inference_time,final_loss\n")
+    else:
+        encoder_summary = open(encoder_summary_path, "a", encoding="utf-8")
+
+    save_path_models = Path(r"trained_models/Experiment2and3")
+    os.makedirs(save_path_models, exist_ok=True)
+
+    save_path_encoders = save_path_models / "encoder_models"
+    os.makedirs(save_path_encoders, exist_ok=True)
+
+    save_path_encoders_otherdataset = save_path_encoders / "OtherDataset"
+    os.makedirs(save_path_encoders_otherdataset, exist_ok=True)
+    save_path_encoders_samedataset = save_path_encoders / "SameDataset"
+    os.makedirs(save_path_encoders_samedataset, exist_ok=True)
+
+
+    encoder_otherdataset_run_log_dir = log_run_dir / "OtherDataset"
+    os.makedirs(encoder_otherdataset_run_log_dir, exist_ok=True)
+    encoder_samedataset_run_log_dir = log_run_dir / "SameDataset"
+    os.makedirs(encoder_samedataset_run_log_dir, exist_ok=True)
+
+    pretrained_encoders_n = 0
+    for encoder in encoders:
+        for pretrained in ["other-dataset", "same-dataset"]:
+            pretrained_encoders_n += 1
+            if pretrained == "other-dataset":
+                encoder_pretrained_save_path = save_path_encoders_otherdataset / f"pretrained_{encoder}.pth"
+            else:
+                encoder_pretrained_save_path = save_path_encoders_samedataset / f"pretrained_{encoder}.pth"
+            if encoder_pretrained_save_path.exists():
+                logger.info(f"Pretrained weights for encoder '{encoder}' already exist at '{encoder_pretrained_save_path}'. Skipping pretraining for this encoder.")
+                continue
+            logger.info(f"Starting with training experiment {pretrained_encoders_n}/{len(encoders)*2} for encoder '{encoder}' with pretrained option '{pretrained}'")
+            try:
+                start = time.time()
+                inference_time, parameter_count, loss = pretrain_encoder.pretrain_encoder(
+                    data_path = "",
+                    encoder_name=encoder,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                    save_path=encoder_pretrained_save_path,
+                    log_dir = encoder_otherdataset_run_log_dir if pretrained == "other-dataset" else encoder_samedataset_run_log_dir,
+                    logger = logger,
+                    loader = pretrain_loader_other_dataset if pretrained == "other-dataset" else pretrain_loader
+                )
+                logger.info(f"Finished pretraining encoder '{encoder}' using {'other dataset' if pretrained == 'other-dataset' else 'same dataset'} in {(time.time() - start)/60:.2f} minutes")
+                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},{parameter_count},{inference_time},{loss}\n")
+                encoder_summary.flush()
+                gc.collect()
+                torch.cuda.empty_cache()
+            except Exception as e:
+                logger.error(f"Error during pretraining of encoder '{encoder}' using {'other dataset' if pretrained == 'other-dataset' else 'same dataset'}: {e}")
+                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},-1,-1,-1\n")
+            
+    encoder_summary.close()
+
+    # train models
+    n_models = len(hyperparameter_combinations)
+    current_model_n = 0
+
+    log_run_architecture_dir = log_run_dir / "architecture"
+    os.makedirs(log_run_architecture_dir, exist_ok=True)
+
+    save_path_models = save_path_models / "architecture_models"
+    os.makedirs(save_path_models, exist_ok=True)
+    
+    logger.info(f"Start training models with all combinations of architecture, encoder, normalization and pretrained options.")
+    for arch, encoder, normalization, pretrained in hyperparameter_combinations:
+        current_model_n += 1
+        if pretrained == "other-dataset":
+            encoder_pretrained_path = save_path_encoders_otherdataset / f"pretrained_{encoder}.pth"
+        elif pretrained == "same-dataset":
+            encoder_pretrained_path = save_path_encoders_samedataset / f"pretrained_{encoder}.pth"
+        else:
+            encoder_pretrained_path = None
+
+        if pretrained is not None and not encoder_pretrained_path.exists():
+            logger.warning(f"Pretrained weights for encoder '{encoder}' do not exist at '{encoder_pretrained_path}'. Skipping this experiment.")
+            continue
+        logger.info(f"Starting training experiment {current_model_n}/{n_models} with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}'")
+        try:
+            start = time.time()
+# parameter_count, inference_time, float(val_loss), float(val_dice), float(val_iou), float(train_loss), float(best_val_loss), float(best_val_dice), float(best_val_iou), float(best_val_train_loss)
+
+            parameter_count, inference_time, val_loss, val_dice, val_iou, train_loss, best_val_loss, best_val_dice, best_val_iou, best_val_train_loss = train_model(
+                arch=arch, 
+                encoder_name=encoder, 
+                encoder_weights=None, 
+                encoder_weights_path=str(encoder_pretrained_path) if encoder_pretrained_path is not None else None,
+                num_epochs=30, 
+                num_freeze_encoder_epochs=5 if encoder_pretrained_path is not None else 0,
+                lr=1e-3, 
+                weight_decay=1e-4, 
+                train_loader=train_loader,
+                test_loader=test_loader, 
+                gpu=True,
+                log_dir=log_run_architecture_dir,
+                save_dir_model=save_path_models,
+                logger=logger,
+                run_name=f"{arch}_{encoder}_{normalization}_{pretrained if pretrained is not None else 'scratch'}"
+            )
+            logger.info(f"Finished training with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}' in {(time.time() - start)/60:.2f} minutes")
+
+
+            # write results to summary log
+            summary_log.write(f"{arch},{encoder},{normalization},{pretrained if pretrained is not None else 'scratch'},{len(train_loader.dataset)},{len(test_loader.dataset)},{parameter_count},{inference_time},{val_loss},{val_dice},{val_iou},{train_loss},{best_val_loss},{best_val_dice},{best_val_iou},{best_val_train_loss}\n")
+            summary_log.flush() 
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            logger.error(f"Error during training with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}': {e}")
+            gc.collect()
+            torch.cuda.empty_cache()
+
+
 
 if __name__ == "__main__":
     # execute_train_segmentation_models_scratch_vs_pretrained()

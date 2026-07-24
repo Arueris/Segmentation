@@ -189,6 +189,43 @@ def measure_inference_time_cuda(model, input_tensor, device="cuda", runs=100):
 def count_params(model):
     return sum(p.numel() for p in model.parameters())
 
+def create_patch_mask(
+        images,
+        grid_size=32,
+        mask_ratio=0.75):
+    
+    assert 0 < mask_ratio < 1, "mask_ratio must be between 0 and 1"
+    
+    B, C, H, W = images.shape
+
+    assert H % grid_size == 0, f"Image height {H} is not divisible by grid_size {grid_size}"
+    assert W % grid_size == 0, f"Image width {W} is not divisible by grid_size {grid_size}"
+
+    patch_h = H // grid_size
+    patch_w = W // grid_size
+
+    # low-resolution patch grid
+    patch_mask = (
+        torch.rand(
+            B,
+            1,
+            grid_size,
+            grid_size,
+            device=images.device
+        ) < mask_ratio
+    ).float()
+
+    # expand to image resolution
+    mask = patch_mask.repeat_interleave(
+        patch_h,
+        dim=2
+    ).repeat_interleave(
+        patch_w,
+        dim=3
+    )
+
+    return mask
+
 
 def pretrain_encoder(
     data_path,
@@ -245,13 +282,14 @@ def pretrain_encoder(
             # =========================
             # MASKED RECONSTRUCTION (KEY!)
             # =========================
-            mask = (torch.rand_like(images) > 0.75).float()
+            # mask = (torch.rand_like(images) > 0.75).float()
+            mask = create_patch_mask(images, grid_size=32, mask_ratio=0.75)
             masked_input = images * (1 - mask)
 
             recon = model(masked_input)
 
 
-            loss = ((recon - images) ** 2 * mask).mean()
+            loss = ((recon - images) ** 2 * mask).sum() / mask.sum() # MSE loss only on masked regions
 
             # =========================
 
