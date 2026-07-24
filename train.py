@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime, time
 import torch
 import torchvision
+import pretrain_encoder
 
 def to_3ch(x):
     # x: (B,1,H,W) -> (B,3,H,W)
@@ -167,7 +168,18 @@ def train_model(
             else:
                 torch.save(network.state_dict(), f"trained_models/{run_name}_best_model.pth")
 
+    if save_dir_model is not None:
+        os.makedirs(save_dir_model, exist_ok=True)
+        torch.save(network.state_dict(), f"{save_dir_model}/{run_name}_final_model.pth")
+    else:
+        torch.save(network.state_dict(), f"trained_models/{run_name}_final_model.pth")
+
+    parameter_count = pretrain_encoder.count_parameters(network)
+    inference_time = pretrain_encoder.measure_inference_time(network, device=device, input_size=(1, 1, 256, 256), n_runs=10)
+
     metrics = {
+        "hparam/parameter_count": parameter_count,
+        "hparam/inference_time": inference_time,
         "hparam/last_val_loss": float(val_loss),
         "hparam/last_val_dice": float(val_dice),
         "hparam/last_val_iou": float(val_iou),
@@ -186,7 +198,7 @@ def train_model(
     del network
     del optimizer
     torch.cuda.empty_cache()
-    return float(val_loss), float(val_dice), float(val_iou), float(train_loss), float(best_val_loss), float(best_val_dice), float(best_val_iou), float(best_val_train_loss)
+    return parameter_count, inference_time, float(val_loss), float(val_dice), float(val_iou), float(train_loss), float(best_val_loss), float(best_val_dice), float(best_val_iou), float(best_val_train_loss)
 
 def train_one_epoch(network, dataloader, loss_fn, optimizer, device, desc, writer, epoch):
     network.train()
@@ -746,7 +758,7 @@ def execute_experiment2_and_experiment3():
         
     if not os.path.exists(summary_log_path):
         summary_log = open(summary_log_path, "w", encoding="utf-8")
-        header = ",".join(["arch", "encoder", "normalization", "pretrained", "train_dataset_length", "test_dataset_length", "last_val_loss", "last_val_dice", "last_val_iou", "last_val_train_loss", "best_val_loss", "best_val_dice", "best_val_iou", "best_val_train_loss"])
+        header = ",".join(["arch", "encoder", "normalization", "pretrained", "train_dataset_length", "test_dataset_length", "parameter_count", "inference_time", "last_val_loss", "last_val_dice", "last_val_iou", "last_val_train_loss", "best_val_loss", "best_val_dice", "best_val_iou", "best_val_train_loss"])
         summary_log.write(header + "\n")
     else:
         summary_log = open(summary_log_path, "a", encoding="utf-8")
@@ -771,6 +783,7 @@ def execute_experiment2_and_experiment3():
     # encoders = ["resnet34", "resnet50", "efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3"]
     encoders = ["efficientnet-b0", "efficientnet-b1", "efficientnet-b2", "efficientnet-b3", "efficientnet-b4", "mit_b0", "mit_b1", "mobilenet_v2", "mobileone_s0", "mobileone_s1", "mobileone_s2", "mobileone_s3", "mobileone_s4", "resnet18", "resnet34",
                 "vgg11_bn", "vgg13_bn", "vgg19_bn"]
+    unetpp_exclude_encoders = ["vgg11_bn", "vgg13_bn", "vgg19_bn", "mobileone_s3", "mobileone_s4"]
     # normalize_options = ["zscore"] # "none", "minmax", 
     normalization = "zscore"  # fixed normalization for this experiment
 
@@ -784,6 +797,14 @@ def execute_experiment2_and_experiment3():
         for pretrained in pretrained_options
         if (arch, encoder, normalization, pretrained) not in combinations_done
     ]
+
+    unetpp_combinations = [
+        (arch, encoder, normalization, pretrained) 
+        for arch, encoder, normalization, pretrained in hyperparameter_combinations 
+        if arch == "unet++" and encoder in unetpp_exclude_encoders]
+    if unetpp_combinations:
+        logger.info(f"Skipping {len(unetpp_combinations)} incompatible combinations of architecture 'unet++' and excluded encoders: {unetpp_exclude_encoders}")
+        hyperparameter_combinations = [combo for combo in hyperparameter_combinations if combo not in unetpp_combinations]
 
 
     # prepare dataloaders
@@ -828,7 +849,7 @@ def execute_experiment2_and_experiment3():
     encoder_summary_path = Path("logs/encoder_pretraining_summary.csv")
     if not encoder_summary_path.exists():
         encoder_summary = open(encoder_summary_path, "w", encoding="utf-8")
-        encoder_summary.write("encoder,pretrained_on,dataset_length,final_loss\n")
+        encoder_summary.write("encoder,pretrained_on,dataset_length,parameter_count,inference_time,final_loss\n")
     else:
         encoder_summary = open(encoder_summary_path, "a", encoding="utf-8")
 
@@ -848,8 +869,11 @@ def execute_experiment2_and_experiment3():
     os.makedirs(encoder_otherdataset_run_log_dir, exist_ok=True)
     encoder_samedataset_run_log_dir = log_run_dir / "SameDataset"
     os.makedirs(encoder_samedataset_run_log_dir, exist_ok=True)
+
+    pretrained_encoders_n = 0
     for encoder in encoders:
         for pretrained in ["other-dataset", "same-dataset"]:
+            pretrained_encoders_n += 1
             if pretrained == "other-dataset":
                 encoder_pretrained_save_path = save_path_encoders_otherdataset / f"pretrained_{encoder}.pth"
             else:
@@ -857,10 +881,10 @@ def execute_experiment2_and_experiment3():
             if encoder_pretrained_save_path.exists():
                 logger.info(f"Pretrained weights for encoder '{encoder}' already exist at '{encoder_pretrained_save_path}'. Skipping pretraining for this encoder.")
                 continue
-            logger.info(f"Pretraining encoder '{encoder}' with path '{encoder_pretrained_save_path}' using {'other dataset' if pretrained == 'other-dataset' else 'same dataset'}")
+            logger.info(f"Starting with training experiment {pretrained_encoders_n}/{len(encoders)*2} for encoder '{encoder}' with pretrained option '{pretrained}'")
             try:
                 start = time.time()
-                loss = pretrain_encoder.pretrain_encoder(
+                inference_time, parameter_count, loss = pretrain_encoder.pretrain_encoder(
                     data_path = "",
                     encoder_name=encoder,
                     device="cuda" if torch.cuda.is_available() else "cpu",
@@ -870,17 +894,20 @@ def execute_experiment2_and_experiment3():
                     loader = pretrain_loader_other_dataset if pretrained == "other-dataset" else pretrain_loader
                 )
                 logger.info(f"Finished pretraining encoder '{encoder}' using {'other dataset' if pretrained == 'other-dataset' else 'same dataset'} in {(time.time() - start)/60:.2f} minutes")
-                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},{loss}\n")
+                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},{parameter_count},{inference_time},{loss}\n")
                 encoder_summary.flush()
                 gc.collect()
                 torch.cuda.empty_cache()
             except Exception as e:
                 logger.error(f"Error during pretraining of encoder '{encoder}' using {'other dataset' if pretrained == 'other-dataset' else 'same dataset'}: {e}")
-                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},-1\n")
-
+                encoder_summary.write(f"{encoder},{pretrained},{len(pretrain_loader_other_dataset.dataset) if pretrained == 'other-dataset' else len(pretrain_loader.dataset)},-1,-1,-1\n")
+            
     encoder_summary.close()
 
     # train models
+    n_models = len(hyperparameter_combinations)
+    current_model_n = 0
+
     log_run_architecture_dir = log_run_dir / "architecture"
     os.makedirs(log_run_architecture_dir, exist_ok=True)
 
@@ -889,6 +916,7 @@ def execute_experiment2_and_experiment3():
     
     logger.info(f"Start training models with all combinations of architecture, encoder, normalization and pretrained options.")
     for arch, encoder, normalization, pretrained in hyperparameter_combinations:
+        current_model_n += 1
         if pretrained == "other-dataset":
             encoder_pretrained_path = save_path_encoders_otherdataset / f"pretrained_{encoder}.pth"
         elif pretrained == "same-dataset":
@@ -899,11 +927,12 @@ def execute_experiment2_and_experiment3():
         if pretrained is not None and not encoder_pretrained_path.exists():
             logger.warning(f"Pretrained weights for encoder '{encoder}' do not exist at '{encoder_pretrained_path}'. Skipping this experiment.")
             continue
-
-        logger.info(f"Start training with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}'")
+        logger.info(f"Starting training experiment {current_model_n}/{n_models} with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}'")
         try:
             start = time.time()
-            results = train_model(
+# parameter_count, inference_time, float(val_loss), float(val_dice), float(val_iou), float(train_loss), float(best_val_loss), float(best_val_dice), float(best_val_iou), float(best_val_train_loss)
+
+            parameter_count, inference_time, val_loss, val_dice, val_iou, train_loss, best_val_loss, best_val_dice, best_val_iou, best_val_train_loss = train_model(
                 arch=arch, 
                 encoder_name=encoder, 
                 encoder_weights=None, 
@@ -924,7 +953,7 @@ def execute_experiment2_and_experiment3():
 
 
             # write results to summary log
-            summary_log.write(f"{arch},{encoder},{normalization},{pretrained if pretrained is not None else 'scratch'},{len(train_loader.dataset)},{len(test_loader.dataset)},{results[0]},{results[1]},{results[2]},{results[3]},{results[4]},{results[5]},{results[6]},{results[7]}\n")
+            summary_log.write(f"{arch},{encoder},{normalization},{pretrained if pretrained is not None else 'scratch'},{len(train_loader.dataset)},{len(test_loader.dataset)},{parameter_count},{inference_time},{val_loss},{val_dice},{val_iou},{train_loss},{best_val_loss},{best_val_dice},{best_val_iou},{best_val_train_loss}\n")
             summary_log.flush() 
             gc.collect()
             torch.cuda.empty_cache()
