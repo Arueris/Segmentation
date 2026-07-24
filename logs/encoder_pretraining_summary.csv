@@ -1,0 +1,4 @@
+encoder,pretrained_on,dataset_length,parameter_count,inference_time,final_loss
+efficientnet-b0,other-dataset,1284,4499197,6.925605120658875,0.08028814748481468
+efficientnet-b0,same-dataset,2364,4499197,6.875934085845947,275.11177372288057
+efficientnet-b1,other-dataset,1284,7004833,9.492611541748047,0.08070761517242149

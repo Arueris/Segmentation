@@ -286,14 +286,16 @@ def pretrain_encoder(
 
     input_tensor = torch.randn((1, 1) + loader.dataset.resize)
     inference_time = measure_inference_time_cuda(model, input_tensor, device=device)
+    parameter_count = count_params(model)
     writer.add_scalar("InferenceTimeMS", inference_time, 0)
-    writer.add_scalar("ParameterCount", count_params(model), 0)
+    writer.add_scalar("ParameterCount", parameter_count, 0)
     # save encoder only
     torch.save(model.encoder.state_dict(), save_path)
     if logger is not None:
         logger.info(f"Saved encoder to {save_path}")
     writer.flush()
     writer.close()
+
 
     del model
     del optimizer
@@ -302,7 +304,7 @@ def pretrain_encoder(
     if logger is not None:
         logger.info(f"Finished pretraining of encoder '{encoder_name}'.")
         
-    return inference_time, count_params(model), running_loss / len(loader)
+    return inference_time, parameter_count, running_loss / len(loader)
 
 
 # =========================

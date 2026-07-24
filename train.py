@@ -732,6 +732,7 @@ def execute_experiment2_and_experiment3():
     import gc
     import pretrain_encoder
     import json
+    import time
 
     log_run_dir = Path("runs/experiment2and3")
     os.makedirs(log_run_dir, exist_ok=True)
@@ -830,16 +831,15 @@ def execute_experiment2_and_experiment3():
             "pretrain": [p for p in pretrain_loader.dataset.participants],
             "test": [p for p in test_loader.dataset.participants]
         }, f, indent=4)
-
+# path, batch_size=16, num_workers=4, normalize="zscore", normal: bool = True, drusen: bool = False, cnv: bool = False
     pretrain_loader_other_dataset = pretrain_encoder.get_dataloader(
-        data_path=r"datasets/OCTDatasetNormalDrusenCNV",  
+        path=r"datasets/OCTDatasetNormalDrusenCNV",  
         batch_size=16,
         num_workers=0,
-        augment=True,
-        max_rotate_deg=0,
-        hflip_p=0.5,
-        return_numpy=False,
-        num_workers=0,
+        normalize=normalization,
+        normal=True,
+        drusen=False,
+        cnv=False
     )
     logger.info(f"Length of pretrain dataset (other dataset): {len(pretrain_loader_other_dataset.dataset)}")
 
