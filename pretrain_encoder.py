@@ -189,10 +189,7 @@ def measure_inference_time_cuda(model, input_tensor, device="cuda", runs=100):
 def count_params(model):
     return sum(p.numel() for p in model.parameters())
 
-def create_patch_mask(
-        images,
-        grid_size=32,
-        mask_ratio=0.75):
+def create_patch_mask(images, grid_size=32, mask_ratio=0.75):
     
     assert 0 < mask_ratio < 1, "mask_ratio must be between 0 and 1"
     
@@ -205,24 +202,10 @@ def create_patch_mask(
     patch_w = W // grid_size
 
     # low-resolution patch grid
-    patch_mask = (
-        torch.rand(
-            B,
-            1,
-            grid_size,
-            grid_size,
-            device=images.device
-        ) < mask_ratio
-    ).float()
+    patch_mask = (torch.rand(B, 1, grid_size, grid_size, device=images.device) < mask_ratio).float()
 
     # expand to image resolution
-    mask = patch_mask.repeat_interleave(
-        patch_h,
-        dim=2
-    ).repeat_interleave(
-        patch_w,
-        dim=3
-    )
+    mask = patch_mask.repeat_interleave(patch_h,dim=2).repeat_interleave(patch_w, dim=3)
 
     return mask
 
@@ -318,6 +301,8 @@ def pretrain_encoder(
     torch.cuda.empty_cache()
     if logger is not None:
         logger.info(f"Finished pretraining of encoder '{encoder_name}'.")
+        
+    return inference_time, count_params(model), running_loss / len(loader)
 
 
 # =========================
