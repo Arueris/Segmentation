@@ -743,6 +743,8 @@ def execute_experiment2_and_experiment3():
                 next(f)  # skip header
                 for line in f:
                     parts = line.strip().split(",")
+                    if len(parts) < 4:
+                        continue
                     arch = parts[0]
                     encoder = parts[1]
                     normalization = parts[2]
@@ -911,8 +913,8 @@ def execute_experiment2_and_experiment3():
     log_run_architecture_dir = log_run_dir / "architecture"
     os.makedirs(log_run_architecture_dir, exist_ok=True)
 
-    save_path_models = save_path_models / "architecture_models"
-    os.makedirs(save_path_models, exist_ok=True)
+    save_path_architectures = save_path_models / "architecture_models"
+    os.makedirs(save_path_architectures, exist_ok=True)
     
     logger.info(f"Start training models with all combinations of architecture, encoder, normalization and pretrained options.")
     for arch, encoder, normalization, pretrained in hyperparameter_combinations:
@@ -945,7 +947,7 @@ def execute_experiment2_and_experiment3():
                 test_loader=test_loader, 
                 gpu=True,
                 log_dir=log_run_architecture_dir,
-                save_dir_model=save_path_models,
+                save_dir_model=save_path_architectures,
                 logger=logger,
                 run_name=f"{arch}_{encoder}_{normalization}_{pretrained if pretrained is not None else 'scratch'}"
             )
@@ -959,12 +961,12 @@ def execute_experiment2_and_experiment3():
             torch.cuda.empty_cache()
         except Exception as e:
             logger.error(f"Error during training with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}': {e}")
+            summary_log.write(f"{arch},{encoder},{normalization},{pretrained if pretrained is not None else 'scratch'},ERROR,ERROR,ERROR,ERROR,ERROR,ERROR,ERROR,ERROR,ERROR,ERROR,ERROR\n")
+            summary_log.flush()
             gc.collect()
             torch.cuda.empty_cache()
 
 
 
 if __name__ == "__main__":
-    # execute_train_segmentation_models_scratch_vs_pretrained()
-    # execute_train_unsupervised_pretrain_vs_from_scratch()
-    execute_train_segmentation_models_from_scratch()
+    execute_experiment2_and_experiment3()
