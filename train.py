@@ -174,8 +174,9 @@ def train_model(
     else:
         torch.save(network.state_dict(), f"trained_models/{run_name}_final_model.pth")
 
-    parameter_count = pretrain_encoder.count_parameters(network)
-    inference_time = pretrain_encoder.measure_inference_time(network, device=device, input_size=(1, 1, 256, 256), n_runs=10)
+    parameter_count = pretrain_encoder.count_params(network)
+    input_tensor = torch.randn((1, 1) + train_loader.dataset.resize)
+    inference_time = pretrain_encoder.measure_inference_time_cuda(network, input_tensor, device=device)
 
     metrics = {
         "hparam/parameter_count": parameter_count,
