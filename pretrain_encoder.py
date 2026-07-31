@@ -46,20 +46,31 @@ class OCTNormalDrusenCNV(Dataset):
             normal_path = self.root / "NORMAL"
             normal_participants = sorted(list(normal_path.glob("*")))
             for participant in normal_participants:
-                self.image_paths.extend(sorted(list((participant / "OD").glob("*.jpg"))))
-                self.image_paths.extend(sorted(list((participant / "OS").glob("*.jpg"))))
+                files = [
+                        f for f in participant.rglob("*")
+                        if f.suffix.lower() in [".jpg", ".tif", ".tiff"]
+                    ]
+                self.image_paths.extend(files)
+                # self.image_paths.extend(sorted(list((participant / "OD").glob("*.jpg"))))
+                # self.image_paths.extend(sorted(list((participant / "OS").glob("*.jpg"))))
         if drusen:
             drusen_path = self.root / "DRUSEN"
             drusen_participants = sorted(list(drusen_path.glob("*")))
             for participant in drusen_participants:
-                self.image_paths.extend(sorted(list((participant / "OD").glob("*.jpg"))))
-                self.image_paths.extend(sorted(list((participant / "OS").glob("*.jpg"))))
+                files = [
+                        f for f in participant.rglob("*")
+                        if f.suffix.lower() in [".jpg", ".tif", ".tiff"]
+                    ]
+                self.image_paths.extend(files)
         if cnv:
             cnv_path = self.root / "CNV"
             cnv_participants = sorted(list(cnv_path.glob("*")))
             for participant in cnv_participants:
-                self.image_paths.extend(sorted(list((participant / "OD").glob("*.jpg"))))
-                self.image_paths.extend(sorted(list((participant / "OS").glob("*.jpg"))))
+                files = [
+                        f for f in participant.rglob("*")
+                        if f.suffix.lower() in [".jpg", ".tif", ".tiff"]
+                    ]
+                self.image_paths.extend(files)
 
         self.normalize = normalize
 
