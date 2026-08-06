@@ -755,7 +755,11 @@ def execute_experiment2_and_experiment3():
         return combinations_done
 
     # define logger
-    summary_log_path = "logs/summary_exp2and3.csv"
+    log_train_dir = Path(r"logs/Experiment2and3")
+    os.makedirs(log_train_dir, exist_ok=True)
+
+    # summary_log_path = "logs/summary_exp2and3.csv"
+    summary_log_path = log_train_dir / "summary.csv"
     combinations_done = read_combinations(summary_log_path)
     if not os.path.exists("logs"):
         os.makedirs("logs")
@@ -768,8 +772,8 @@ def execute_experiment2_and_experiment3():
         summary_log = open(summary_log_path, "a", encoding="utf-8")
         
 
-
-    log_file = f"logs/training_exp2and3.log"
+    
+    log_file = log_train_dir / "training_exp2and3.log"
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -849,7 +853,8 @@ def execute_experiment2_and_experiment3():
     # save pretrained weights in "trained_models/encoder_models/OtherDataset" and "trained_models/encoder_models/SameDataset"
     logger.info(f"Start pretraining encoders with other dataset and same dataset.")
 
-    encoder_summary_path = Path("logs/encoder_pretraining_summary.csv")
+    # encoder_summary_path = Path("logs/encoder_pretraining_summary.csv")
+    encoder_summary_path = log_train_dir / "encoder_pretraining_summary.csv"
     if not encoder_summary_path.exists():
         encoder_summary = open(encoder_summary_path, "w", encoding="utf-8")
         encoder_summary.write("encoder,pretrained_on,dataset_length,parameter_count,inference_time,final_loss\n")
