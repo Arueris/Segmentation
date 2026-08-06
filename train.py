@@ -823,6 +823,7 @@ def execute_experiment2_and_experiment3():
         participants=os.listdir(Path(r"datasets/OCTDatasetOIMHS") / "Images"),
         portions=(0.05, 0.65, 0.3),
         path=r"datasets/OCTDatasetOIMHS",
+        normalize=normalization,
         augment=True,
         max_rotate_deg=0,
         hflip_p=0.5,
