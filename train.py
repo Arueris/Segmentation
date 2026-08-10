@@ -750,7 +750,7 @@ def execute_experiment2_and_experiment3():
                     arch = parts[0]
                     encoder = parts[1]
                     normalization = parts[2]
-                    pretrained = parts[3]
+                    pretrained = parts[3] if parts[3] != "scratch" else None
                     combinations_done.add((arch, encoder, normalization, pretrained))
         return combinations_done
 
