@@ -263,8 +263,10 @@ def get_dataloader(participants: list[str], train_portion: float = 0.8,
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
     return train_loader, test_loader
 
+
+
 def get_dataloader_encoder_pretraining(participants: list[str],
-                                       portions: tuple[float, float, float] = (0.65, 0.05, 0.3), 
+                                       portions: tuple[float, float, float] = (0.05, 0.65, 0.3), 
                                        path = r"F:/Python/SAM2/OCTDatasetOIMHS", 
                                        augment: bool = True, 
                                        max_rotate_deg: float = 0, 
@@ -280,16 +282,16 @@ def get_dataloader_encoder_pretraining(participants: list[str],
     n_pretrain = int(n * portions[0])
     n_train = int(n * portions[1])    
 
-    dataset_pretrain = OIMHSDataset(participants[:n_pretrain],
+    dataset_train1 = OIMHSDataset(participants[:n_pretrain],
                              path = path, 
                              augment = augment, 
                              max_rotate_deg = max_rotate_deg, 
                              hflip_p = hflip_p, 
                              return_numpy = return_numpy, 
                              normalize = normalize)
-    dataset_train = OIMHSDataset(participants[n_pretrain:n_pretrain+n_train], 
+    dataset_train2 = OIMHSDataset(participants[n_pretrain:n_pretrain+n_train], 
                          path = path, 
-                         augment = augment,  # Keine Augmentierungen für Validierung
+                         augment = augment, 
                          max_rotate_deg = max_rotate_deg, 
                          hflip_p = hflip_p, 
                          return_numpy = return_numpy, 
@@ -301,10 +303,10 @@ def get_dataloader_encoder_pretraining(participants: list[str],
                          hflip_p = 0, 
                          return_numpy = return_numpy, 
                          normalize = normalize)
-    pretrain_loader = torch.utils.data.DataLoader(dataset_pretrain, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
-    train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    train1_loader = torch.utils.data.DataLoader(dataset_train1, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    train2_loader = torch.utils.data.DataLoader(dataset_train2, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
-    return pretrain_loader, train_loader, test_loader
+    return train1_loader, train2_loader, test_loader
 
 
 if __name__ == "__main__":
