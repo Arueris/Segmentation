@@ -239,20 +239,29 @@ class OIMHSDataset(Dataset):
     
 
 
-def get_dataloader(participants: list[str], train_portion: float = 0.8,
+def get_dataloader(participants: list[str] | None = None, train_portion: float = 0.8,
+                   train_participants: list[str] | None = None, test_participants: list[str] | None = None,
                    path = r"F:/Python/SAM2/OCTDatasetOIMHS", augment: bool = True, 
                    max_rotate_deg: float = 0, hflip_p: float = 0.5, 
                    return_numpy: bool = False, normalize: str = "none",
                    batch_size: int = 16, num_workers: int = 0):
-    n_train = int(len(participants) * train_portion)
-    dataset_train = OIMHSDataset(participants[:n_train],
+
+    if train_participants is None or test_participants is None:
+        if participants is None:
+            raise ValueError("Either participants or train/test participants must be provided.")
+        n = len(participants)
+        n_train = int(n * train_portion)
+        train_participants = participants[:n_train]
+        test_participants = participants[n_train:]
+
+    dataset_train = OIMHSDataset(train_participants,
                            path = path, 
                            augment = augment, 
                            max_rotate_deg = max_rotate_deg, 
                            hflip_p = hflip_p, 
                            return_numpy = return_numpy, 
                            normalize = normalize)
-    dataset_test = OIMHSDataset(participants[n_train:], 
+    dataset_test = OIMHSDataset(test_participants, 
                          path = path, 
                          augment = False,  # Keine Augmentierungen für Validierung
                          max_rotate_deg = 0, 
@@ -265,7 +274,10 @@ def get_dataloader(participants: list[str], train_portion: float = 0.8,
 
 
 
-def get_dataloader_encoder_pretraining(participants: list[str],
+def get_dataloader_encoder_pretraining(participants: list[str] | None = None,
+                                       train1_participants: list[str] | None = None,
+                                       train2_participants: list[str] | None = None,
+                                       test_participants: list[str] | None = None,
                                        portions: tuple[float, float, float] = (0.05, 0.65, 0.3), 
                                        path = r"F:/Python/SAM2/OCTDatasetOIMHS", 
                                        augment: bool = True, 
@@ -276,33 +288,40 @@ def get_dataloader_encoder_pretraining(participants: list[str],
                                        batch_size: int = 16, 
                                        num_workers: int = 0):
 
-    if sum(portions) != 1.0:
-        raise ValueError("Portions must sum to 1.0")
-    n = len(participants)
-    n_pretrain = int(n * portions[0])
-    n_train = int(n * portions[1])    
+    if train1_participants is None or train2_participants is None or test_participants is None:
+        if participants is None:
+            raise ValueError("Either participants or train/test participants must be provided.")
+        if sum(portions) != 1.0:
+            raise ValueError("Portions must sum to 1.0")
+        n = len(participants)
+        n_train1 = int(n * portions[0])
+        n_train2 = int(n * portions[1])    
 
-    dataset_train1 = OIMHSDataset(participants[:n_pretrain],
-                             path = path, 
-                             augment = augment, 
-                             max_rotate_deg = max_rotate_deg, 
-                             hflip_p = hflip_p, 
-                             return_numpy = return_numpy, 
-                             normalize = normalize)
-    dataset_train2 = OIMHSDataset(participants[n_pretrain:n_pretrain+n_train], 
-                         path = path, 
-                         augment = augment, 
-                         max_rotate_deg = max_rotate_deg, 
-                         hflip_p = hflip_p, 
-                         return_numpy = return_numpy, 
-                         normalize = normalize)
-    dataset_test = OIMHSDataset(participants[n_pretrain+n_train:], 
-                         path = path, 
-                         augment = False,  # Keine Augmentierungen für Validierung
-                         max_rotate_deg = 0, 
-                         hflip_p = 0, 
-                         return_numpy = return_numpy, 
-                         normalize = normalize)
+        train1_participants = participants[:n_train1]
+        train2_participants = participants[n_train1:n_train1+n_train2]
+        test_participants = participants[n_train1+n_train2:]
+
+    dataset_train1 = OIMHSDataset(train1_participants,
+                            path = path, 
+                            augment = augment, 
+                            max_rotate_deg = max_rotate_deg, 
+                            hflip_p = hflip_p, 
+                            return_numpy = return_numpy, 
+                            normalize = normalize)
+    dataset_train2 = OIMHSDataset(train2_participants, 
+                        path = path, 
+                        augment = augment, 
+                        max_rotate_deg = max_rotate_deg, 
+                        hflip_p = hflip_p, 
+                        return_numpy = return_numpy, 
+                        normalize = normalize)
+    dataset_test = OIMHSDataset(test_participants, 
+                        path = path, 
+                        augment = False,  # Keine Augmentierungen für Validierung
+                        max_rotate_deg = 0, 
+                        hflip_p = 0, 
+                        return_numpy = return_numpy, 
+                        normalize = normalize)
     train1_loader = torch.utils.data.DataLoader(dataset_train1, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
     train2_loader = torch.utils.data.DataLoader(dataset_train2, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
