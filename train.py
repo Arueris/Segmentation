@@ -141,7 +141,7 @@ def train_model(
 
     device = torch.device("cuda" if gpu and torch.cuda.is_available() else "cpu")
     network.to(device)
-
+    logger.info(f"Using device: {device}")
     # training loop
     best_val_loss = float('inf')
     best_val_dice = 0.0
@@ -828,6 +828,7 @@ def execute_experiment2_and_experiment3():
         max_rotate_deg=0,
         hflip_p=0.5,
         return_numpy=False,
+        batch_size=8,
     )
 
     logger.info(f"Length of train dataset: {len(train_loader.dataset)}, length of pretrain dataset: {len(pretrain_loader.dataset)}, length of test dataset: {len(test_loader.dataset)}")
@@ -840,7 +841,7 @@ def execute_experiment2_and_experiment3():
 # path, batch_size=16, num_workers=4, normalize="zscore", normal: bool = True, drusen: bool = False, cnv: bool = False
     pretrain_loader_other_dataset = pretrain_encoder.get_dataloader(
         path=r"datasets/OCTDatasetNormalDrusenCNV",  
-        batch_size=16,
+        batch_size=8,
         num_workers=0,
         normalize=normalization,
         normal=True,
