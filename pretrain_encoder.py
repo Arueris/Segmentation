@@ -264,7 +264,7 @@ def pretrain_encoder(
 
     if logger is not None:
         logger.info(f"Start pretraining of encoder '{encoder_name}' on {len(loader.dataset)} images")
-        logger.info(f"Hyperparameters: batch_size={batch_size}, num_epochs={num_epochs}, lr={lr}, device={device}")
+        logger.info(f"Hyperparameters: batch_size={loader.batch_size}, num_epochs={num_epochs}, lr={lr}, device={device}")
         logger.info(f"Model parameter count: {count_params(model)}")
     for epoch in range(num_epochs):
         model.train()
