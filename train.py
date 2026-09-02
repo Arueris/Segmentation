@@ -1218,9 +1218,10 @@ def execute_all_scenrios_together(
         else:
             train_loader = train_loader_small
 
-        if pretrained is not None and not encoder_pretrained_path.exists():
-            logger.warning(f"Pretrained weights for encoder '{encoder}' do not exist at '{encoder_pretrained_path}'. Skipping this experiment.")
-            continue
+        if pretrained in ["other-dataset", "same-dataset"]: # and not encoder_pretrained_path.exists():
+            if not encoder_pretrained_path.exists():
+                logger.warning(f"Pretrained weights for encoder '{encoder}' do not exist at '{encoder_pretrained_path}'. Skipping this experiment.")
+                continue
         logger.info(f"Starting training experiment {current_model_n}/{n_models} with architecture '{arch}', encoder '{encoder}', normalization '{normalization}', pretrained option '{pretrained}'")
         try:
             start = time.time()
